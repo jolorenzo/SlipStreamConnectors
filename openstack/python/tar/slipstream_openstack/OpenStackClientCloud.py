@@ -359,7 +359,7 @@ class OpenStackClientCloud(BaseCloudConnector):
             floating_ip = OpenStack_1_1_FloatingIpAddress(id=ip_id,
                                                           ip_address=None,
                                                           pool=None)
-            self._delete_floating_ip(floating_ip)
+            self._detach_floating_ip(node, floating_ip)
 
     def _get_driver(self, user_info):
         driverOpenStack = get_driver(Provider.OPENSTACK)
