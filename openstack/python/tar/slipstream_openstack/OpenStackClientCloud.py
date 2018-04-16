@@ -243,7 +243,16 @@ class OpenStackClientCloud(BaseCloudConnector):
         ip = None
         if use_floating_ips and network_type == 'Public':
             ip_pool = user_info.get_public_network_name() or None
-            floating_ip = self._thread_local.driver.ex_create_floating_ip(ip_pool)
+            unused_floating_ip = None
+            for floating_ip in self._thread_local.driver.ex_list_floating_ips():
+                if not floating_ip.node_id:
+                    unused_floating_ip = floating_ip
+                    break
+                    
+            if not unused_floating_ip:
+                unused_floating_ip = self._thread_local.driver.ex_create_floating_ip(ip_pool)
+                
+            floating_ip = unused_floating_ip
             ip = floating_ip.ip_address
             kwargs['ex_metadata'].update({'floating_ip': floating_ip.id})
 
@@ -265,7 +274,9 @@ class OpenStackClientCloud(BaseCloudConnector):
                     self._thread_local.driver.attach_volume(instance, additional_disk, device='/dev/vdb')
         except:
             if floating_ip:
-                self._delete_floating_ip(floating_ip)
+                for node in driver.list_nodes():
+                    if floating_ip in node.public_ips:
+                        self._detach_floating_ip(node, floating_ip)
             if additional_disk:
                 self._thread_local.driver.destroy_volume(additional_disk)
             raise
@@ -337,7 +348,11 @@ class OpenStackClientCloud(BaseCloudConnector):
     @retry(Exceptions.CloudError, tries=5, delay=1, backoff=2)
     def _delete_floating_ip(self, floating_ip):
         self._thread_local.driver.ex_delete_floating_ip(floating_ip)
-
+    
+    @retry(Exceptions.CloudError, tries=5, delay=1, backoff=2)
+    def _detach_floating_ip(self, node, floating_ip):
+        self._thread_local.driver.ex_detach_floating_ip_from_node(node, floating_ip)
+      
     def _remove_floating_ip(self, node):
         ip_id = node.extra.get('metadata', {}).get('floating_ip')
         if ip_id:
