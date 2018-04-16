@@ -274,7 +274,7 @@ class OpenStackClientCloud(BaseCloudConnector):
                     self._thread_local.driver.attach_volume(instance, additional_disk, device='/dev/vdb')
         except:
             if floating_ip:
-                for node in driver.list_nodes():
+                for node in self._thread_local.driver.list_nodes():
                     if floating_ip in node.public_ips:
                         self._detach_floating_ip(node, floating_ip)
             if additional_disk:
