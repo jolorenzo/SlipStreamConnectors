@@ -19,6 +19,7 @@
 
 import os
 import time
+import random
 
 from .OpenStackLibcloudPatch import patch_libcloud
 patch_libcloud()
@@ -241,21 +242,7 @@ class OpenStackClientCloud(BaseCloudConnector):
         kwargs['ex_metadata'] = {}
         floating_ip = None
         ip = None
-        if use_floating_ips and network_type == 'Public':
-            ip_pool = user_info.get_public_network_name() or None
-            unused_floating_ip = None
-            for floating_ip in self._thread_local.driver.ex_list_floating_ips():
-                if not floating_ip.node_id:
-                    unused_floating_ip = floating_ip
-                    break
-                    
-            if not unused_floating_ip:
-                unused_floating_ip = self._thread_local.driver.ex_create_floating_ip(ip_pool)
-                
-            floating_ip = unused_floating_ip
-            ip = floating_ip.ip_address
-            kwargs['ex_metadata'].update({'floating_ip': floating_ip.id})
-
+        
         additional_disk = None
         if node_instance.get_volatile_extra_disk_size():
             additional_disk = self._thread_local.driver.create_volume(node_instance.get_volatile_extra_disk_size(), \
@@ -265,18 +252,25 @@ class OpenStackClientCloud(BaseCloudConnector):
 
         try:
             instance = self._thread_local.driver.create_node(**kwargs)
+            
+            self._wait_instance_in_running_state(instance.id)
 
-            if floating_ip or additional_disk:
-                self._wait_instance_in_running_state(instance.id)
+            if use_floating_ips and network_type == 'Public':
+                floating_ip = self._get_floating_ip(user_info)
+
+            if floating_ip or additional_disk:        
                 if floating_ip:
+                    ip = floating_ip.ip_address
                     self._thread_local.driver.ex_attach_floating_ip_to_node(instance, floating_ip)
                 if additional_disk:
                     self._thread_local.driver.attach_volume(instance, additional_disk, device='/dev/vdb')
+
+            if not floating_ip:
+                raise Exceptions.ParameterNotFoundException("Couldn't find floating ip!")
+                #ip_pool = user_info.get_public_network_name() or None
+                #floating_ip = self._thread_local.driver.ex_create_floating_ip(ip_pool)
+                
         except:
-            if floating_ip:
-                for node in self._thread_local.driver.list_nodes():
-                    if floating_ip in node.public_ips:
-                        self._detach_floating_ip(node, floating_ip)
             if additional_disk:
                 self._thread_local.driver.destroy_volume(additional_disk)
             raise
@@ -352,14 +346,22 @@ class OpenStackClientCloud(BaseCloudConnector):
     @retry(Exceptions.CloudError, tries=5, delay=1, backoff=2)
     def _detach_floating_ip(self, node, floating_ip):
         self._thread_local.driver.ex_detach_floating_ip_from_node(node, floating_ip)
-      
+
     def _remove_floating_ip(self, node):
         ip_id = node.extra.get('metadata', {}).get('floating_ip')
         if ip_id:
             for floating_ip in node.public_ips:
                 if floating_ip:
                     self._detach_floating_ip(node, floating_ip)
-
+    
+    def _get_floating_ip(self, user_info):        
+        unused_floating_ips = []
+        for floating_ip in self._thread_local.driver.ex_list_floating_ips():
+            if not floating_ip.node_id:
+                unused_floating_ips.append(floating_ip)
+        unused_floating_ip = random.choice(unused_floating_ips)
+        return unused_floating_ip
+    
     def _get_driver(self, user_info):
         driverOpenStack = get_driver(Provider.OPENSTACK)
         isHttps = user_info.get_cloud_endpoint().lower().startswith('https://')
