@@ -257,6 +257,10 @@ class OpenStackClientCloud(BaseCloudConnector):
 
             if use_floating_ips and network_type == 'Public':
                 floating_ip = self._get_floating_ip(user_info)
+                if not floating_ip:
+                    raise Exceptions.ParameterNotFoundException("Couldn't find floating ip!")
+                    #ip_pool = user_info.get_public_network_name() or None
+                    #floating_ip = self._thread_local.driver.ex_create_floating_ip(ip_pool)
 
             if floating_ip or additional_disk:        
                 if floating_ip:
@@ -264,12 +268,6 @@ class OpenStackClientCloud(BaseCloudConnector):
                     self._thread_local.driver.ex_attach_floating_ip_to_node(instance, floating_ip)
                 if additional_disk:
                     self._thread_local.driver.attach_volume(instance, additional_disk, device='/dev/vdb')
-
-            if not floating_ip:
-                raise Exceptions.ParameterNotFoundException("Couldn't find floating ip!")
-                #ip_pool = user_info.get_public_network_name() or None
-                #floating_ip = self._thread_local.driver.ex_create_floating_ip(ip_pool)
-                
         except:
             if additional_disk:
                 self._thread_local.driver.destroy_volume(additional_disk)
